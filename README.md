@@ -1,3 +1,35 @@
+# OK GROW FORK: This fork adds ability to also record from Bluetooth as well.
+
+Here's how you can use it:
+
+```js
+const path = `${AudioUtils.DocumentDirectoryPath}/file.aac`;
+
+const inputs = await AudioRecorder.getAvailableInputs();
+
+console.log(inputs);
+
+for (let input of inputs) {
+  if (/LOTUS/.test(input.name)) {
+    await AudioRecorder.prepareRecordingAtPath(path, {
+      preferredInput: input.id,
+      // ... other options such as sample rate, etc.
+    });
+  }
+}
+```
+
+The `AudioRecorder.getAvailableInputs()` returns a list of available recording devices like this:
+```
+[ { id: 'Built-In Microphone',
+    type: 'builtInMic',
+    name: 'iPhone Microphone' },
+  { id: 'D4:F5:11:50:8A:22',
+    type: 'bluetoothHFP',
+    name: 'LOTUS 1.7-12311' } ]
+```
+
+
 Record audio in iOS or Android React Native apps.
 
 ## BREAKING CHANGES
