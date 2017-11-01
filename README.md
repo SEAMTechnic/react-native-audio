@@ -1,4 +1,6 @@
-# OK GROW FORK: This fork adds ability to also record from Bluetooth as well.
+# OK GROW FORK: 
+
+## This fork adds ability to also record from Bluetooth as well.
 
 Here's how you can use it:
 
@@ -28,7 +30,7 @@ The `AudioRecorder.getAvailableInputs()` returns a list of available recording d
     type: 'bluetoothHFP',
     name: 'LOTUS 1.7-12311' } ]
 ```
-
+# Original Readme:
 
 Record audio in iOS or Android React Native apps.
 
