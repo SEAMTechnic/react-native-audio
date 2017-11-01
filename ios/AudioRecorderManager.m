@@ -171,13 +171,6 @@ RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)samp
   _recordSession = [AVAudioSession sharedInstance];
 
     
-  if (preferredInput) {
-    for (AVAudioSessionPortDescription *desc in [_recordSession availableInputs]) {
-      if ([preferredInput isEqualToString:desc.UID]) {
-        [_recordSession setPreferredInput:desc error:nil];
-      }
-    }
-  }
 
   if (_measurementMode) {
       [_recordSession setCategory:AVAudioSessionCategoryRecord error:nil];
@@ -185,6 +178,18 @@ RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)samp
   }else{
       [_recordSession setCategory:AVAudioSessionCategoryMultiRoute error:nil];
   }
+    
+    [_recordSession setCategory: AVAudioSessionCategoryPlayAndRecord error: nil];
+    [_recordSession setActive: YES error: nil];
+    [_recordSession setCategory:AVAudioSessionCategoryRecord withOptions:kAudioSessionProperty_OverrideCategoryEnableBluetoothInput error:nil];
+    
+    if (preferredInput) {
+        for (AVAudioSessionPortDescription *desc in [_recordSession availableInputs]) {
+            if ([preferredInput isEqualToString:desc.UID]) {
+                [_recordSession setPreferredInput:desc error:nil];                
+            }
+        }
+    }
 
   _audioRecorder = [[AVAudioRecorder alloc]
                 initWithURL:_audioFileURL
@@ -261,24 +266,24 @@ RCT_EXPORT_METHOD(requestAuthorization:(RCTPromiseResolveBlock)resolve
 RCT_EXPORT_METHOD(getAvailableInputs:(RCTPromiseResolveBlock)resolve
                   rejecter:(__unused RCTPromiseRejectBlock)reject)
 {
-    NSDictionary *const AudioRecorderPortTypes = [[NSDictionary alloc] initWithObjectsAndKeys:@"builtInMic",AVAudioSessionPortBuiltInMic,@"bluetoothHFP",AVAudioSessionPortBluetoothHFP,@"bluetoothA2DP",AVAudioSessionPortBluetoothA2DP,@"bluetoothLE",AVAudioSessionPortBluetoothLE,@"lineIn",AVAudioSessionPortLineIn,@"airPlay",AVAudioSessionPortAirPlay,@"carAudio",AVAudioSessionPortCarAudio,@"USBAudio",AVAudioSessionPortUSBAudio,@"headsetMic",AVAudioSessionPortHeadsetMic,@"builtInReceiver",AVAudioSessionPortBuiltInReceiver, nil];
-    
-    // Enable bluetooth
-    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryRecord withOptions:kAudioSessionProperty_OverrideCategoryEnableBluetoothInput error:nil];
-    
-    NSArray<AVAudioSessionPortDescription *> *availableInputs = [[AVAudioSession sharedInstance] availableInputs];
-    
-    NSMutableArray *result = [NSMutableArray array];
-    
-    for (AVAudioSessionPortDescription *desc in availableInputs) {
-        [result addObject:@{
-            @"id": desc.UID,
-            @"type": AudioRecorderPortTypes[desc.portType],
-            @"name": desc.portName
-        }];
-    }
+  NSDictionary *const AudioRecorderPortTypes = [[NSDictionary alloc] initWithObjectsAndKeys:@"builtInMic",AVAudioSessionPortBuiltInMic,@"bluetoothHFP",AVAudioSessionPortBluetoothHFP,@"bluetoothA2DP",AVAudioSessionPortBluetoothA2DP,@"bluetoothLE",AVAudioSessionPortBluetoothLE,@"lineIn",AVAudioSessionPortLineIn,@"airPlay",AVAudioSessionPortAirPlay,@"carAudio",AVAudioSessionPortCarAudio,@"USBAudio",AVAudioSessionPortUSBAudio,@"headsetMic",AVAudioSessionPortHeadsetMic,@"builtInReceiver",AVAudioSessionPortBuiltInReceiver, nil];
+  
+  // Enable bluetooth
+  [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryRecord withOptions:kAudioSessionProperty_OverrideCategoryEnableBluetoothInput error:nil];
+  
+  NSArray<AVAudioSessionPortDescription *> *availableInputs = [[AVAudioSession sharedInstance] availableInputs];
+  
+  NSMutableArray *result = [NSMutableArray array];
+  
+  for (AVAudioSessionPortDescription *desc in availableInputs) {
+    [result addObject:@{
+      @"id": desc.UID,
+      @"type": AudioRecorderPortTypes[desc.portType],
+      @"name": desc.portName
+    }];
+  }
 
-    resolve(result);
+  resolve(result);
 }
 
 - (NSString *)getPathForDirectory:(int)directory
