@@ -1,6 +1,7 @@
 package com.rnim.rn.audio;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -10,6 +11,7 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 
 import java.io.File;
@@ -19,6 +21,8 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Environment;
 import android.media.MediaRecorder;
@@ -42,12 +46,17 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
   private static final String MusicDirectoryPath = "MusicDirectoryPath";
   private static final String DownloadsDirectoryPath = "DownloadsDirectoryPath";
 
+  private static final String SOURCE_BUILT_IN_MICROPHONE = "builtInMicrophone";
+  private static final String SOURCE_BLUETOOTH_HFP = "bluetoothHFP";
+
   private Context context;
   private MediaRecorder recorder;
   private String currentOutputFile;
   private boolean isRecording = false;
   private Timer timer;
   private int recorderSecondsElapsed;
+  private String preferredInput =SOURCE_BUILT_IN_MICROPHONE;
+  private Promise mPromise;
 
 
   public AudioRecorderManager(ReactApplicationContext reactContext) {
@@ -89,6 +98,7 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
 
     recorder = new MediaRecorder();
     try {
+      preferredInput = recordingSettings.getString("preferredInput");
       recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
       int outputFormat = getOutputFormatFromString(recordingSettings.getString("OutputFormat"));
       recorder.setOutputFormat(outputFormat);
@@ -101,6 +111,7 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
     }
     catch(final Exception e) {
       logAndRejectPromise(promise, "COULDNT_CONFIGURE_MEDIA_RECORDER" , "Make sure you've added RECORD_AUDIO permission to your AndroidManifest.xml file "+e.getMessage());
+      Log.e("RNAudio", "Error", e);
       return;
     }
 
@@ -112,6 +123,12 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
       logAndRejectPromise(promise, "COULDNT_PREPARE_RECORDING_AT_PATH "+recordingPath, e.getMessage());
     }
 
+  }
+
+  @ReactMethod
+  public void getAvailableInputs(Promise promise) {
+    WritableArray array = Arguments.createArray();
+    promise.resolve(array);
   }
 
   private int getAudioEncoderFromString(String audioEncoder) {
@@ -165,10 +182,38 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
       logAndRejectPromise(promise, "INVALID_STATE", "Please call stopRecording before starting recording");
       return;
     }
-    recorder.start();
-    isRecording = true;
-    startTimer();
-    promise.resolve(currentOutputFile);
+
+
+    if (preferredInput.equals(SOURCE_BLUETOOTH_HFP)) {
+        mPromise = promise;
+        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+
+        context.registerReceiver(new BroadcastReceiver() {
+
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+
+                if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
+                    context.unregisterReceiver(this);
+
+                    recorder.start();
+                    isRecording = true;
+                    startTimer();
+                    mPromise.resolve(currentOutputFile);
+                } else {
+                    logAndRejectPromise(mPromise, "BLUETOOTH_NOT_CONNECTED", "Couldn't initiate a connection to the HFP device");
+                }
+            }
+        }, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
+
+        am.startBluetoothSco();
+    } else {
+        recorder.start();
+        isRecording = true;
+        startTimer();
+        promise.resolve(currentOutputFile);
+    }
   }
 
   @ReactMethod
@@ -226,7 +271,7 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
       timer = null;
     }
   }
-  
+
   private void sendEvent(String eventName, Object params) {
     getReactApplicationContext()
             .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
