@@ -58,10 +58,35 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
   private String preferredInput =SOURCE_BUILT_IN_MICROPHONE;
   private Promise mPromise;
 
+  private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      try {
+        int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+
+        if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
+          context.unregisterReceiver(this);
+
+          recorder.start();
+          isRecording = true;
+          startTimer();
+          mPromise.resolve(currentOutputFile);
+          context.unregisterReceiver(this);
+        } else {
+          logAndRejectPromise(mPromise, "BLUETOOTH_NOT_CONNECTED", "Couldn't initiate a connection to the HFP device");
+        }
+      } catch (Exception e) {
+        // mPromise.reject("BLUETOOTH_NOT_CONNECTED", "There was an error connecting to the HFP device", e);
+      }
+    }
+  };
+
 
   public AudioRecorderManager(ReactApplicationContext reactContext) {
     super(reactContext);
     this.context = reactContext;
+
   }
 
   @Override
@@ -132,23 +157,23 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
   }
 
   private int getAudioEncoderFromString(String audioEncoder) {
-   switch (audioEncoder) {
-     case "aac":
-       return MediaRecorder.AudioEncoder.AAC;
-     case "aac_eld":
-       return MediaRecorder.AudioEncoder.AAC_ELD;
-     case "amr_nb":
-       return MediaRecorder.AudioEncoder.AMR_NB;
-     case "amr_wb":
-       return MediaRecorder.AudioEncoder.AMR_WB;
-     case "he_aac":
-       return MediaRecorder.AudioEncoder.HE_AAC;
-     case "vorbis":
-      return MediaRecorder.AudioEncoder.VORBIS;
-     default:
-       Log.d("INVALID_AUDIO_ENCODER", "USING MediaRecorder.AudioEncoder.DEFAULT instead of "+audioEncoder+": "+MediaRecorder.AudioEncoder.DEFAULT);
-       return MediaRecorder.AudioEncoder.DEFAULT;
-   }
+    switch (audioEncoder) {
+      case "aac":
+        return MediaRecorder.AudioEncoder.AAC;
+      case "aac_eld":
+        return MediaRecorder.AudioEncoder.AAC_ELD;
+      case "amr_nb":
+        return MediaRecorder.AudioEncoder.AMR_NB;
+      case "amr_wb":
+        return MediaRecorder.AudioEncoder.AMR_WB;
+      case "he_aac":
+        return MediaRecorder.AudioEncoder.HE_AAC;
+      case "vorbis":
+        return MediaRecorder.AudioEncoder.VORBIS;
+      default:
+        Log.d("INVALID_AUDIO_ENCODER", "USING MediaRecorder.AudioEncoder.DEFAULT instead of "+audioEncoder+": "+MediaRecorder.AudioEncoder.DEFAULT);
+        return MediaRecorder.AudioEncoder.DEFAULT;
+    }
   }
 
   private int getOutputFormatFromString(String outputFormat) {
@@ -185,34 +210,16 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
 
 
     if (preferredInput.equals(SOURCE_BLUETOOTH_HFP)) {
-        mPromise = promise;
-        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+      mPromise = promise;
+      AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+      context.registerReceiver(mBroadcastReceiver, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
 
-        context.registerReceiver(new BroadcastReceiver() {
-
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
-
-                if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
-                    context.unregisterReceiver(this);
-
-                    recorder.start();
-                    isRecording = true;
-                    startTimer();
-                    mPromise.resolve(currentOutputFile);
-                } else {
-                    logAndRejectPromise(mPromise, "BLUETOOTH_NOT_CONNECTED", "Couldn't initiate a connection to the HFP device");
-                }
-            }
-        }, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
-
-        am.startBluetoothSco();
+      am.startBluetoothSco();
     } else {
-        recorder.start();
-        isRecording = true;
-        startTimer();
-        promise.resolve(currentOutputFile);
+      recorder.start();
+      isRecording = true;
+      startTimer();
+      promise.resolve(currentOutputFile);
     }
   }
 
