@@ -66,14 +66,12 @@ class AudioRecorderManager extends ReactContextBaseJavaModule {
         int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
 
         if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
-          context.unregisterReceiver(this);
-
           recorder.start();
           isRecording = true;
           startTimer();
           mPromise.resolve(currentOutputFile);
           context.unregisterReceiver(this);
-        } else {
+        } else if (AudioManager.SCO_AUDIO_STATE_ERROR == state) {
           logAndRejectPromise(mPromise, "BLUETOOTH_NOT_CONNECTED", "Couldn't initiate a connection to the HFP device");
         }
       } catch (Exception e) {
