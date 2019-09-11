@@ -6,6 +6,7 @@ import ReactNative, {
   NativeModules,
   NativeAppEventEmitter,
   DeviceEventEmitter,
+  PermissionsAndroid,
   Platform
 } from "react-native";
 
@@ -40,7 +41,9 @@ var AudioRecorder = {
       MeteringEnabled: false,
       MeasurementMode: false,
       AudioEncodingBitRate: 32000,
-      preferredInput: null
+      preferredInput: null,
+      IncludeBase64: false,
+      AudioSource: 0
     };
 
     var recordingOptions = {...defaultOptions, ...options};
@@ -54,6 +57,7 @@ var AudioRecorder = {
         recordingOptions.AudioEncoding,
         recordingOptions.MeteringEnabled,
         recordingOptions.MeasurementMode,
+        recordingOptions.IncludeBase64,
         recordingOptions.preferredInput
       );
     } else {
@@ -66,6 +70,9 @@ var AudioRecorder = {
   pauseRecording: function() {
     return AudioRecorderManager.pauseRecording();
   },
+  resumeRecording: function() {
+    return AudioRecorderManager.resumeRecording();
+  },
   stopRecording: function() {
     return AudioRecorderManager.stopRecording();
   },
@@ -73,7 +80,21 @@ var AudioRecorder = {
     return AudioRecorderManager.getAvailableInputs();
   },
   checkAuthorizationStatus: AudioRecorderManager.checkAuthorizationStatus,
-  requestAuthorization: AudioRecorderManager.requestAuthorization,
+  requestAuthorization: () => {
+    if (Platform.OS === 'ios')
+      return AudioRecorderManager.requestAuthorization();
+    else
+      return new Promise((resolve, reject) => {
+        PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+        ).then(result => {
+          if (result == PermissionsAndroid.RESULTS.GRANTED || result == true)
+            resolve(true);
+          else
+            resolve(false)
+        })
+      });
+  },
   removeListeners: function() {
     if (this.progressSubscription) this.progressSubscription.remove();
     if (this.finishedSubscription) this.finishedSubscription.remove();
@@ -81,6 +102,7 @@ var AudioRecorder = {
 };
 
 let AudioUtils = {};
+let AudioSource = {};
 
 if (Platform.OS === 'ios') {
   AudioUtils = {
@@ -99,6 +121,18 @@ if (Platform.OS === 'ios') {
     MusicDirectoryPath: AudioRecorderManager.MusicDirectoryPath,
     DownloadsDirectoryPath: AudioRecorderManager.DownloadsDirectoryPath
   };
+  AudioSource = {
+    DEFAULT: 0,
+    MIC: 1,
+    VOICE_UPLINK: 2,
+    VOICE_DOWNLINK: 3,
+    VOICE_CALL: 4,
+    CAMCORDER: 5,
+    VOICE_RECOGNITION: 6,
+    VOICE_COMMUNICATION: 7,
+    REMOTE_SUBMIX: 8, // added in API 19
+    UNPROCESSED: 9, // added in API 24
+  };
 }
 
-module.exports = {AudioRecorder, AudioUtils};
+module.exports = {AudioRecorder, AudioUtils, AudioSource};
