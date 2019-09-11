@@ -18,6 +18,7 @@ class AudioExample extends Component {
     state = {
       currentTime: 0.0,
       recording: false,
+      paused: false,
       stoppedRecording: false,
       finished: false,
       audioPath: AudioUtils.DocumentDirectoryPath + '/test.aac',
@@ -35,10 +36,10 @@ class AudioExample extends Component {
     }
 
     componentDidMount() {
-      this._checkPermission().then((hasPermission) => {
-        this.setState({ hasPermission });
+      AudioRecorder.requestAuthorization().then((isAuthorised) => {
+        this.setState({ hasPermission: isAuthorised });
 
-        if (!hasPermission) return;
+        if (!isAuthorised) return;
 
         this.prepareRecordingPath(this.state.audioPath);
 
@@ -49,32 +50,27 @@ class AudioExample extends Component {
         AudioRecorder.onFinished = (data) => {
           // Android callback comes in the form of a promise instead.
           if (Platform.OS === 'ios') {
-            this._finishRecording(data.status === "OK", data.audioFileURL);
+            this._finishRecording(data.status === "OK", data.audioFileURL, data.audioFileSize);
           }
         };
       });
     }
 
-    _checkPermission() {
-      if (Platform.OS !== 'android') {
-        return Promise.resolve(true);
-      }
-
-      const rationale = {
-        'title': 'Microphone Permission',
-        'message': 'AudioExample needs access to your microphone so you can record audio.'
-      };
-
-      return PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, rationale)
-        .then((result) => {
-          console.log('Permission result:', result);
-          return (result === true || result === PermissionsAndroid.RESULTS.GRANTED);
-        });
-    }
-
     _renderButton(title, onPress, active) {
       var style = (active) ? styles.activeButtonText : styles.buttonText;
 
+      return (
+        <TouchableHighlight style={styles.button} onPress={onPress}>
+          <Text style={style}>
+            {title}
+          </Text>
+        </TouchableHighlight>
+      );
+    }
+
+    _renderPauseButton(onPress, active) {
+      var style = (active) ? styles.activeButtonText : styles.buttonText;
+      var title = this.state.paused ? "RESUME" : "PAUSE";
       return (
         <TouchableHighlight style={styles.button} onPress={onPress}>
           <Text style={style}>
@@ -90,15 +86,23 @@ class AudioExample extends Component {
         return;
       }
 
-      this.setState({stoppedRecording: true, recording: false});
-
       try {
         const filePath = await AudioRecorder.pauseRecording();
+        this.setState({paused: true});
+      } catch (error) {
+        console.error(error);
+      }
+    }
 
-        // Pause is currently equivalent to stop on Android.
-        if (Platform.OS === 'android') {
-          this._finishRecording(true, filePath);
-        }
+    async _resume() {
+      if (!this.state.paused) {
+        console.warn('Can\'t resume, not paused!');
+        return;
+      }
+
+      try {
+        await AudioRecorder.resumeRecording();
+        this.setState({paused: false});
       } catch (error) {
         console.error(error);
       }
@@ -110,7 +114,7 @@ class AudioExample extends Component {
         return;
       }
 
-      this.setState({stoppedRecording: true, recording: false});
+      this.setState({stoppedRecording: true, recording: false, paused: false});
 
       try {
         const filePath = await AudioRecorder.stopRecording();
@@ -165,7 +169,7 @@ class AudioExample extends Component {
         this.prepareRecordingPath(this.state.audioPath);
       }
 
-      this.setState({recording: true});
+      this.setState({recording: true, paused: false});
 
       try {
         const filePath = await AudioRecorder.startRecording();
@@ -174,9 +178,9 @@ class AudioExample extends Component {
       }
     }
 
-    _finishRecording(didSucceed, filePath) {
+    _finishRecording(didSucceed, filePath, fileSize) {
       this.setState({ finished: didSucceed });
-      console.log(`Finished recording of duration ${this.state.currentTime} seconds at path: ${filePath}`);
+      console.log(`Finished recording of duration ${this.state.currentTime} seconds at path: ${filePath} and size of ${fileSize || 0} bytes`);
     }
 
     render() {
@@ -187,7 +191,8 @@ class AudioExample extends Component {
             {this._renderButton("RECORD", () => {this._record()}, this.state.recording )}
             {this._renderButton("PLAY", () => {this._play()} )}
             {this._renderButton("STOP", () => {this._stop()} )}
-            {this._renderButton("PAUSE", () => {this._pause()} )}
+            {/* {this._renderButton("PAUSE", () => {this._pause()} )} */}
+            {this._renderPauseButton(() => {this.state.paused ? this._resume() : this._pause()})}
             <Text style={styles.progressText}>{this.state.currentTime}s</Text>
           </View>
         </View>

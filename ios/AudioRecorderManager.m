@@ -32,14 +32,19 @@ NSString *const AudioRecorderEventFinished = @"recordingFinished";
   AVAudioSession *_recordSession;
   BOOL _meteringEnabled;
   BOOL _measurementMode;
+  BOOL _includeBase64;
 }
 
 @synthesize bridge = _bridge;
 
 RCT_EXPORT_MODULE();
 
++ (BOOL)requiresMainQueueSetup {
+  return YES;
+}
+
 - (void)sendProgressUpdate {
-  if (_audioRecorder && _audioRecorder.recording) {
+  if (_audioRecorder && _audioRecorder.isRecording) {
     _currentTime = _audioRecorder.currentTime;
   } else {
     return;
@@ -53,8 +58,10 @@ RCT_EXPORT_MODULE();
           [_audioRecorder updateMeters];
           float _currentMetering = [_audioRecorder averagePowerForChannel: 0];
           [body setObject:[NSNumber numberWithFloat:_currentMetering] forKey:@"currentMetering"];
+   
+          float _currentPeakMetering = [_audioRecorder peakPowerForChannel:0];
+          [body setObject:[NSNumber numberWithFloat:_currentPeakMetering] forKey:@"currentPeakMetering"];
       }
-
       [self.bridge.eventDispatcher sendAppEventWithName:AudioRecorderEventProgress body:body];
 
     _prevProgressUpdateTime = [NSDate date];
@@ -67,19 +74,48 @@ RCT_EXPORT_MODULE();
 
 - (void)startProgressTimer {
   _progressUpdateInterval = 250;
-  _prevProgressUpdateTime = nil;
+  //_prevProgressUpdateTime = nil;
 
   [self stopProgressTimer];
 
   _progressUpdateTimer = [CADisplayLink displayLinkWithTarget:self selector:@selector(sendProgressUpdate)];
-  [_progressUpdateTimer addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+  [_progressUpdateTimer addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 
 - (void)audioRecorderDidFinishRecording:(AVAudioRecorder *)recorder successfully:(BOOL)flag {
+  NSString *base64 = @"";
+  if (_includeBase64) {
+    NSData *data = [NSData dataWithContentsOfURL:_audioFileURL];
+    base64 = [data base64EncodedStringWithOptions:0];
+  }
+    uint64_t audioFileSize = 0;
+    audioFileSize = [[[NSFileManager defaultManager] attributesOfItemAtPath:[_audioFileURL path] error:nil] fileSize];
+  
   [self.bridge.eventDispatcher sendAppEventWithName:AudioRecorderEventFinished body:@{
+      @"base64":base64,
+      @"duration":@(_currentTime),
       @"status": flag ? @"OK" : @"ERROR",
-      @"audioFileURL": [_audioFileURL absoluteString]
+      @"audioFileURL": [_audioFileURL absoluteString],
+      @"audioFileSize": @(audioFileSize)
     }];
+    
+    // This will resume the music/audio file that was playing before the recording started
+    // Without this piece of code, the music/audio will just be stopped
+    NSError *error;
+    [[AVAudioSession sharedInstance] setActive:NO
+                                   withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+                                         error:&error];
+    if (error) {
+        // TODO: dispatch error over the bridge
+        NSLog(@"error: %@", [error localizedDescription]);
+    }
+}
+
+- (void)audioRecorderEncodeErrorDidOccur:(AVAudioRecorder *)recorder error:(NSError *)error {
+    if (error) {
+        // TODO: dispatch error over the bridge
+        NSLog(@"error: %@", [error localizedDescription]);
+    }
 }
 
 - (NSString *) applicationDocumentsDirectory
@@ -89,19 +125,31 @@ RCT_EXPORT_MODULE();
   return basePath;
 }
 
-RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)sampleRate channels:(nonnull NSNumber *)channels quality:(NSString *)quality encoding:(NSString *)encoding meteringEnabled:(BOOL)meteringEnabled measurementMode:(BOOL)measurementMode preferredInput:(NSString *)preferredInput)
+RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)sampleRate channels:(nonnull NSNumber *)channels quality:(NSString *)quality encoding:(NSString *)encoding meteringEnabled:(BOOL)meteringEnabled measurementMode:(BOOL)measurementMode includeBase64:(BOOL)includeBase64  preferredInput:(NSString *)preferredInput)
 {
   _prevProgressUpdateTime = nil;
   [self stopProgressTimer];
-
+    
+  NSString *filePathAndDirectory = [path stringByDeletingLastPathComponent];
+  NSError *error=nil;
+  //create parent dirs if necessary
+  if (![[NSFileManager defaultManager] createDirectoryAtPath:filePathAndDirectory
+                                 withIntermediateDirectories:YES
+                                                  attributes:nil
+                                                       error:&error])
+  {
+    NSLog(@"Create directory error: %@", error);
+  }
+    
   _audioFileURL = [NSURL fileURLWithPath:path];
-
+  
   // Default options
   _audioQuality = [NSNumber numberWithInt:AVAudioQualityHigh];
   _audioEncoding = [NSNumber numberWithInt:kAudioFormatAppleIMA4];
   _audioChannels = [NSNumber numberWithInt:2];
   _audioSampleRate = [NSNumber numberWithFloat:44100.0];
   _meteringEnabled = NO;
+  _includeBase64 = NO;
 
   // Set audio quality from options
   if (quality != nil) {
@@ -143,9 +191,14 @@ RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)samp
       _audioEncoding =[NSNumber numberWithInt:kAudioFormatAppleLossless];
     } else if ([encoding  isEqual: @"amr"]) {
       _audioEncoding =[NSNumber numberWithInt:kAudioFormatAMR];
+    } else if ([encoding  isEqual: @"flac"]) {
+        if (@available(iOS 11, *)) _audioEncoding =[NSNumber numberWithInt:kAudioFormatFLAC];
+    } else if ([encoding  isEqual: @"opus"]) {
+        if (@available(iOS 11, *)) _audioEncoding =[NSNumber numberWithInt:kAudioFormatOpus];
     }
   }
 
+    
   // Set sample rate from options
   _audioSampleRate = [NSNumber numberWithFloat:sampleRate];
 
@@ -166,7 +219,10 @@ RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)samp
     _measurementMode = measurementMode;
   }
 
-  NSError *error = nil;
+  if (includeBase64) {
+    _includeBase64 = includeBase64;
+  }
+
 
   _recordSession = [AVAudioSession sharedInstance];
 
@@ -209,12 +265,9 @@ RCT_EXPORT_METHOD(prepareRecordingAtPath:(NSString *)path sampleRate:(float)samp
 
 RCT_EXPORT_METHOD(startRecording)
 {
-  if (!_audioRecorder.recording) {
-    [self startProgressTimer];
-    [_recordSession setActive:YES error:nil];
-    [_audioRecorder record];
-
-  }
+  [self startProgressTimer];
+  [_recordSession setActive:YES error:nil];
+  [_audioRecorder record];
 }
 
 RCT_EXPORT_METHOD(stopRecording)
@@ -226,9 +279,15 @@ RCT_EXPORT_METHOD(stopRecording)
 
 RCT_EXPORT_METHOD(pauseRecording)
 {
-  if (_audioRecorder.recording) {
-    [self stopProgressTimer];
+  if (_audioRecorder.isRecording) {
     [_audioRecorder pause];
+  }
+}
+
+RCT_EXPORT_METHOD(resumeRecording)
+{
+  if (!_audioRecorder.isRecording) {
+    [_audioRecorder record];
   }
 }
 
